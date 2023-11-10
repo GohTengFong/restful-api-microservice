@@ -23,3 +23,33 @@ async def verify_token(token: str):
         )
 
     return user
+
+async def verify_password(provided_password: str, hash_password: str):
+    return pwd_context.verify(provided_password, hash_password)
+
+async def authenticate_user(provided_username: str, provided_password: str):
+    user = await User.get(username = provided_username)
+
+    if user and verify_password(provided_password, user.password):
+        return user
+    else:
+        return False
+
+async def token_generator(provided_username: str, provided_password: str):
+    user = await authenticate_user(provided_username, provided_password)
+    
+    if user:
+        token_data = {
+            "id" : user.id,
+            "username" : user.username
+        }
+
+        token = jwt.encode(token_data, config_credentials["SECRET"])
+
+        return token
+    else:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = "Invalid username or password",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )

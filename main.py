@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, Depends
 from tortoise.contrib.fastapi import register_tortoise
 from models import *
 from emails import *
@@ -18,13 +18,50 @@ from tortoise.signals import post_save
 from typing import List, Optional, Type
 from tortoise import BaseDBAsyncClient
 
+# uvicorn main:app --reload
+
 app = FastAPI()
 
-# uvicorn main:app --reload
+# oath2_scheme provides a form for the user to fill in their username and password and redirects this request to "/token"
+# after, it will go and look in the request for that Authorization header, check if the value is Bearer plus some token, and will return the token as a str
+oath2_scheme = OAuth2PasswordBearer(tokenUrl = "token")
 
 @app.get("/")
 def root():
     return {"Message" : "Hello World"}
+
+# OAuth2PasswordRequestForm is a Pydantic model class that automatically parses and validates the content of an HTTP POST request
+# this route is typically used for generating and returning access tokens
+@app.post("/token")
+async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
+    token = await token_generator(request_form.username, request_form.password)
+    return {"access_token" : token, "token_type" : "bearer"}
+
+async def get_current_user(token: str = Depends(oath2_scheme)):
+    try:
+        payload = jwt.decode(token, config_credentials["SECRET"], algorithms = ["HS256"])
+        user = await User.get(id = payload.get("id"))
+    except:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = "Invalid username or password",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )
+    
+    return await user
+
+@app.post("/login")
+async def login_user(user: user_pydanticIn = Depends(get_current_user)):
+    business = await Business.get(owner = user)
+
+    return {
+        "Account Details" : {
+            "Username" : user.username,
+            "Email" : user.email,
+            "Verified" : user.is_verified,
+            "Join_Date" : user.join_date.strftime("%b %d %Y")
+        }
+    }
 
 @post_save(User)
 async def register_business(
