@@ -51,7 +51,7 @@ async def get_current_user(token: str = Depends(oath2_scheme)):
     return await user
 
 @app.post("/login")
-async def login_user(user: user_pydanticIn = Depends(get_current_user)):
+async def login_user(user: user_pydantic = Depends(get_current_user)):
     business = await Business.get(owner = user)
 
     return {
@@ -100,6 +100,79 @@ async def verify_user(request: Request, token: str):
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
             detail = "Invalid jwtoken.",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )
+    
+# CRUD for Products
+
+@app.post("/products")
+async def add_new_product(product: product_pydanticIn, user: user_pydantic = Depends(get_current_user)):
+    product_info = product.dict(exclude_unset = True)
+
+    if product_info["price"] > 0:
+        product_obj = await Product.create(**product_info, business = user)
+        new_product = await product_pydantic.from_tortoise_orm(product_obj)
+
+        return {"Data" : new_product}
+    else:
+        raise HTTPException(
+            status_code = status.HTTP_400_BAD_REQUEST,
+            detail = "Price of a product cannot be equal to or lesser than 0.",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )
+    
+@app.get("/products")
+async def get_products():
+    response = await product_pydantic.from_queryset(Product.all())
+    return {"Data" : response}
+
+@app.get("/products/{id}")
+async def get_product(id: int):
+    product = await Product.get(id = id)
+
+    response = await product_pydantic.from_queryset_single(product)
+    return {"Data" : response}
+
+@app.put("/product/{id}")
+async def update_product(id: int, update: product_pydanticIn, user: user_pydantic = Depends(get_current_user)):
+    update_info = update.dict(exclude_unset = True)
+    
+    product = await Product.get(id = id)
+    business = await product.business
+    owner = await business.owner
+
+    if user == owner and update_info["price"] > 0:
+        product = await product.update_from_dict(update_info)
+        product.save()
+
+        response = await product_pydantic.from_tortoise_orm(product)
+        return {"Data" : response}
+    elif update_info["price"] <= 0:
+        raise HTTPException(
+            status_code = status.HTTP_400_BAD_REQUEST,
+            detail = "Price of a product cannot be equal to or lesser than 0.",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )
+    else:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = "Unable to edit another user's products.",
+            headers = {"WWW-Authenticate" : "Bearer"}
+        )
+
+@app.delete("/products/{id}")
+async def delete_product(id: int, user: user_pydanticIn = Depends(get_current_user)):
+    product = await Product.get(id = id)
+    business = await product.business
+    owner = await business.owner
+
+    if user == owner:
+        product.delete()
+        return {"Message" : "Product deleted."}
+    else:
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = "Unable to delete another user's products.",
             headers = {"WWW-Authenticate" : "Bearer"}
         )
 
