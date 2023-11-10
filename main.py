@@ -69,8 +69,7 @@ async def register_business(
     instance: User,
     created: bool,
     using_db: "Optional[BaseDBAsyncClient]",
-    update_fields: List[str]
-):
+    update_fields: List[str]):
     if created:
         business_obj = await Business.create(owner = instance)
 
@@ -129,11 +128,20 @@ async def get_products():
 @app.get("/products/{id}")
 async def get_product(id: int):
     product = await Product.get(id = id)
+    business = await product.business
+    owner = await business.owner
 
-    response = await product_pydantic.from_queryset_single(product)
-    return {"Data" : response}
+    response = await product_pydantic.from_queryset_single(Product.get(id = id))
+    return {"Data" : {
+        "Product Details" : response,
+        "Business Details" : {
+            "Owner Username" : owner.username,
+            "Owner Email" : owner.email
+            }
+        }
+    }
 
-@app.put("/product/{id}")
+@app.put("/products/{id}")
 async def update_product(id: int, update: product_pydanticIn, user: user_pydantic = Depends(get_current_user)):
     update_info = update.dict(exclude_unset = True)
     
@@ -143,7 +151,7 @@ async def update_product(id: int, update: product_pydanticIn, user: user_pydanti
 
     if user == owner and update_info["price"] > 0:
         product = await product.update_from_dict(update_info)
-        product.save()
+        await product.save()
 
         response = await product_pydantic.from_tortoise_orm(product)
         return {"Data" : response}
@@ -167,7 +175,7 @@ async def delete_product(id: int, user: user_pydanticIn = Depends(get_current_us
     owner = await business.owner
 
     if user == owner:
-        product.delete()
+        await product.delete()
         return {"Message" : "Product deleted."}
     else:
         raise HTTPException(
